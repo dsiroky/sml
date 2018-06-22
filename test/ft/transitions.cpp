@@ -87,6 +87,64 @@ test anonymous_transition = [] {
   expect(static_cast<const c&>(sm).a_called);
 };
 
+test subsequent_anonymous_transitions = [] {
+  struct c {
+    auto operator()() noexcept {
+      using namespace sml;
+      // clang-format off
+      return make_transition_table(
+       *idle / [this] { a_calls.push_back(1); } = s1
+       ,s1 / [this] { a_calls.push_back(2); } = s2
+       ,s2 / [this] { a_calls.push_back(3); } = s3
+      );
+      // clang-format on
+    }
+
+    std::vector<int> a_calls{};
+  };
+
+  sml::sm<c> sm{};
+  expect(sm.is(s3));
+  expect(static_cast<const c&>(sm).a_calls == std::vector<int>{{1, 2, 3}});
+};
+
+test subsequent_anonymous_transitions_composite = [] {
+  using V = std::vector<int>;
+  V calls{};
+
+  using namespace sml;
+
+  struct sub_sm {
+    auto operator()() noexcept {
+      // clang-format off
+      return make_transition_table(
+       *idle / [] (V& v) { v.push_back(1); } = s1
+       ,s1 / [] (V& v) { v.push_back(2); } = s2
+       ,s2 / [] (V& v) { v.push_back(3); } = X
+      );
+      // clang-format on
+    }
+  };
+
+  struct composite_sm {
+    auto operator()() noexcept {
+      // clang-format off
+      return make_transition_table(
+       *idle / [] (V& v) { v.push_back(11); } = s1
+       ,s1 / [] (V& v) { v.push_back(12); } = state<sub_sm>
+       ,state<sub_sm> / [] (V& v) { v.push_back(13); } = s2
+       ,s2 / [] (V& v) { v.push_back(14); } = s3
+      );
+      // clang-format on
+    }
+  };
+
+  sml::sm<composite_sm> sm{calls};
+  expect(sm.is<decltype(state<sub_sm>)>(X));
+  expect(sm.is(s3));
+  expect(calls == std::vector<int>{{11, 12, 1, 2, 3, 13, 14}});
+};
+
 test self_transition = [] {
   enum class calls { s1_entry, s1_exit, s1_action };
 
